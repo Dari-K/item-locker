@@ -8,7 +8,7 @@ import java.awt.Image;
 import java.awt.Rectangle;
 import javax.inject.Inject;
 
-import net.runelite.api.widgets.InterfaceID;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.WidgetItem;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.overlay.WidgetItemOverlay;
@@ -30,11 +30,13 @@ class ItemLockerOverlay extends WidgetItemOverlay
 		showOnEquipment();
 		showOnInventory();
 		showOnInterfaces(
-			InterfaceID.CHAMBERS_OF_XERIC_INVENTORY,
-			InterfaceID.CHAMBERS_OF_XERIC_STORAGE_UNIT_PRIVATE,
-			InterfaceID.CHAMBERS_OF_XERIC_STORAGE_UNIT_SHARED,
-			InterfaceID.GRAVESTONE,
-            InterfaceID.BANK
+			InterfaceID.BANKMAIN,
+			InterfaceID.RAIDS_STORAGE_SIDE,
+			InterfaceID.RAIDS_STORAGE_SHARED,
+			InterfaceID.RAIDS_STORAGE_PRIVATE,
+			InterfaceID.GRAVESTONE_RETRIEVAL,
+			InterfaceID.GRAVESTONE_GENERIC,
+			InterfaceID.BANK_DEPOSITBOX
 		);
 		fillCache = CacheBuilder.newBuilder()
 			.concurrencyLevel(1)

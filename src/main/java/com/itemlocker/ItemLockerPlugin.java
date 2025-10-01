@@ -2,6 +2,12 @@ package com.itemlocker;
 
 import com.google.inject.Provides;
 
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 import javax.inject.Inject;
 
 import lombok.extern.slf4j.Slf4j;
@@ -12,7 +18,7 @@ import net.runelite.api.MenuAction;
 import net.runelite.api.MenuEntry;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.PostMenuSort;
-import net.runelite.api.widgets.InterfaceID;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetUtil;
 import net.runelite.client.config.ConfigManager;
@@ -29,7 +35,6 @@ import net.runelite.client.util.Text;
 )
 public class ItemLockerPlugin extends Plugin
 {
-	private static final String UNLOCK_KEY_PREFIX = "unlock_";
 	@Inject
 	private Client client;
 
@@ -42,6 +47,8 @@ public class ItemLockerPlugin extends Plugin
 	@Inject
 	private OverlayManager overlayManager;
 
+	private Set<Integer> unlockedItems = new HashSet<>();
+
 	@Provides
 	ItemLockerConfig provideConfig(ConfigManager configManager)
 	{
@@ -51,6 +58,21 @@ public class ItemLockerPlugin extends Plugin
 	@Override
 	protected void startUp() throws Exception
 	{
+		String csv = configManager.getConfiguration("itemlocker", "unlockedItems");
+		if (csv != null && !csv.isEmpty()) {
+			this.unlockedItems = Arrays.stream(csv.split(","))
+			.map(String::trim)
+			.filter(s -> !s.isEmpty())
+			.map(s -> {
+				try {
+					return Integer.parseInt(s);
+				} catch (NumberFormatException e) {
+					return null;
+				}
+			})
+			.filter(Objects::nonNull)
+			.collect(Collectors.toSet());
+		}
 		overlayManager.add(overlay);
 	}
 
@@ -62,22 +84,29 @@ public class ItemLockerPlugin extends Plugin
 
 	boolean getUnlocked(int itemId)
 	{
-		String unlocked = configManager.getConfiguration("itemlocker", UNLOCK_KEY_PREFIX + itemId);
-		if (unlocked == null || unlocked.isEmpty())
-		{
-			return false;
-		}
-		return true;
+		return this.unlockedItems.contains(itemId);
+	}
+
+	private void saveUnlockedItems() {
+		configManager.setConfiguration
+		("itemlocker",
+		"unlockedItems",
+		this.unlockedItems.stream()
+			.map(String::valueOf)
+			.collect(Collectors.joining(","))
+		);
 	}
 
 	void setUnlocked(int itemId)
 	{
-		configManager.setConfiguration("itemlocker", UNLOCK_KEY_PREFIX + itemId, "1");
+		this.unlockedItems.add(itemId);
+		this.saveUnlockedItems();
 	}
 
 	void setLocked(int itemId)
 	{
-		configManager.unsetConfiguration("itemlocker", UNLOCK_KEY_PREFIX + itemId);
+		this.unlockedItems.remove(itemId);
+		this.saveUnlockedItems();
 	}
 
 	@Subscribe
@@ -109,7 +138,7 @@ public class ItemLockerPlugin extends Plugin
 				final int itemId = w.getItemId();
 				final boolean unlocked = getUnlocked(itemId);
 
-				client.createMenuEntry(idx)
+				client.getMenu().createMenuEntry(idx)
 					.setOption(unlocked ? "Lock" : "Unlock")
 					.setTarget(entry.getTarget())
 					.setType(MenuAction.RUNELITE)
