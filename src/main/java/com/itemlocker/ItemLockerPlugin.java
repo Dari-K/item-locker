@@ -163,35 +163,26 @@ public class ItemLockerPlugin extends Plugin
 		}
 		Menu root = client.getMenu();
 		MenuEntry[] menuEntries = root.getMenuEntries();
-
-		int idx = 0;
-		for (MenuEntry entry : menuEntries)
-		{
-			if (getUnlocked(entry.getItemId())) {
-				break;
-			}
-
-			final String option = Text.removeTags(entry.getOption()).toLowerCase();
-			final Widget w = entry.getWidget();
-
-			if (w != null && WidgetUtil.componentToInterface(w.getId()) == InterfaceID.INVENTORY
-				&& (option.equals("drop") || option.equals("destroy")))
-			{
-				MenuEntry leftClickEntry = menuEntries[menuEntries.length - 1];
-				menuEntries[menuEntries.length - 1] = entry;
-				menuEntries[idx] = leftClickEntry;
-				if (entry.getType() == MenuAction.CC_OP_LOW_PRIORITY)
-				{
-					entry.setType(MenuAction.CC_OP);
-				}
-				if (leftClickEntry.getType() == MenuAction.CC_OP_LOW_PRIORITY)
-				{
-					leftClickEntry.setType(MenuAction.CC_OP);
-				}
-				root.setMenuEntries(menuEntries);
-				break;
-			}
-			idx++;
+		
+		if (menuEntries.length == 0) {
+			return;
 		}
+
+		MenuEntry leftClickEntry = menuEntries[menuEntries.length - 1];
+
+		if (getUnlocked(leftClickEntry.getItemId())) {
+			return;
+		}
+
+		Widget w = leftClickEntry.getWidget();
+
+		if (w == null || WidgetUtil.componentToInterface(w.getId()) != InterfaceID.INVENTORY) {
+			return;
+		}
+		
+		MenuEntry newLeftClickEntry = root.createMenuEntry(-1);
+
+		newLeftClickEntry.setOption("Locked");
+		newLeftClickEntry.setType(MenuAction.CANCEL);
 	}
 }
