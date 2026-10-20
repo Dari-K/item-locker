@@ -42,6 +42,9 @@ public class ItemLockerPlugin extends Plugin
 	private ConfigManager configManager;
 
 	@Inject
+	private ItemLockerConfig config;
+
+	@Inject
 	private ItemLockerOverlay overlay;
 
 	@Inject
@@ -58,9 +61,29 @@ public class ItemLockerPlugin extends Plugin
 	@Override
 	protected void startUp() throws Exception
 	{
-		String csv = configManager.getConfiguration("itemlocker", "unlockedItems");
-		if (csv != null && !csv.isEmpty()) {
-			this.unlockedItems = Arrays.stream(csv.split(","))
+		this.unlockedItems = parseUnlockedItems(config.unlockedItems());
+		overlayManager.add(overlay);
+	}
+
+	@Override
+	protected void shutDown() throws Exception
+	{
+		overlayManager.remove(overlay);
+		this.unlockedItems.clear();
+	}
+
+	boolean getUnlocked(int itemId)
+	{
+		return this.unlockedItems.contains(itemId);
+	}
+
+	private Set<Integer> parseUnlockedItems(String csv)
+	{
+		if (csv == null || csv.isEmpty())
+		{
+			return new HashSet<>();
+		}
+		return Arrays.stream(csv.split(","))
 			.map(String::trim)
 			.filter(s -> !s.isEmpty())
 			.map(s -> {
@@ -71,29 +94,17 @@ public class ItemLockerPlugin extends Plugin
 				}
 			})
 			.filter(Objects::nonNull)
-			.collect(Collectors.toSet());
-		}
-		overlayManager.add(overlay);
+			.collect(Collectors.toCollection(HashSet::new));
 	}
 
-	@Override
-	protected void shutDown() throws Exception
+	private void saveUnlockedItems()
 	{
-		overlayManager.remove(overlay);
-	}
-
-	boolean getUnlocked(int itemId)
-	{
-		return this.unlockedItems.contains(itemId);
-	}
-
-	private void saveUnlockedItems() {
-		configManager.setConfiguration
-		("itemlocker",
-		"unlockedItems",
-		this.unlockedItems.stream()
-			.map(String::valueOf)
-			.collect(Collectors.joining(","))
+		configManager.setConfiguration(
+			ItemLockerConfig.CONFIG_GROUP,
+			ItemLockerConfig.KEY_UNLOCKED_ITEMS,
+			this.unlockedItems.stream()
+				.map(String::valueOf)
+				.collect(Collectors.joining(","))
 		);
 	}
 
@@ -112,10 +123,17 @@ public class ItemLockerPlugin extends Plugin
 	@Subscribe
 	public void onConfigChanged(ConfigChanged configChanged)
 	{
-		if (configChanged.getGroup().equals("itemlocker"))
+		if (!configChanged.getGroup().equals(ItemLockerConfig.CONFIG_GROUP))
 		{
-			overlay.invalidateCache();
+			return;
 		}
+
+		if (configChanged.getKey().equals(ItemLockerConfig.KEY_UNLOCKED_ITEMS))
+		{
+			this.unlockedItems = parseUnlockedItems(configChanged.getNewValue());
+		}
+
+		overlay.invalidateCache();
 	}
 
 	@Subscribe
