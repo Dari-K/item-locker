@@ -12,6 +12,7 @@ import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.WidgetItem;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.overlay.WidgetItemOverlay;
+import net.runelite.client.util.AsyncBufferedImage;
 import net.runelite.client.util.ColorUtil;
 import net.runelite.client.util.ImageUtil;
 
@@ -20,10 +21,9 @@ class ItemLockerOverlay extends WidgetItemOverlay
 	private final ItemManager itemManager;
 	private final ItemLockerPlugin plugin;
 	private final Cache<Long, Image> fillCache;
-    private final Cache<Integer, Boolean> unlockCache;
 
 	@Inject
-	private ItemLockerOverlay(ItemManager itemManager, ItemLockerPlugin plugin, ItemLockerConfig config)
+	private ItemLockerOverlay(ItemManager itemManager, ItemLockerPlugin plugin)
 	{
 		this.itemManager = itemManager;
 		this.plugin = plugin;
@@ -40,39 +40,28 @@ class ItemLockerOverlay extends WidgetItemOverlay
 		);
 		fillCache = CacheBuilder.newBuilder()
 			.concurrencyLevel(1)
-			.maximumSize(32)
+			.maximumSize(256)
 			.build();
-        unlockCache = CacheBuilder.newBuilder()
-            .concurrencyLevel(1)
-            .maximumSize(39)
-            .build();
 	}
 
 	@Override
 	public void renderItemOverlay(Graphics2D graphics, int itemId, WidgetItem widgetItem)
 	{
-        final boolean unlocked = getUnlocked(itemId);
-        if (unlocked) {
-            return;
-        }
+		final boolean unlocked = plugin.getUnlocked(itemId);
+		if (unlocked) {
+			return;
+		}
 
 		final Color color = Color.RED;
 
 		Rectangle bounds = widgetItem.getCanvasBounds();
 
-        final Image image = getFillImage(color, widgetItem.getId(), widgetItem.getQuantity());
-        graphics.drawImage(image, (int) bounds.getX(), (int) bounds.getY(), null);
+		final Image image = getFillImage(color, widgetItem.getId(), widgetItem.getQuantity());
+		if (image != null)
+		{
+			graphics.drawImage(image, (int) bounds.getX(), (int) bounds.getY(), null);
+		}
 	}
-
-    private boolean getUnlocked(int itemId)
-    {
-        Boolean unlocked = unlockCache.getIfPresent(itemId);
-        if (unlocked == null) {
-            unlocked = plugin.getUnlocked(itemId);
-            unlockCache.put(itemId, unlocked);
-        }
-        return unlocked;
-    }
 
 	private Image getFillImage(Color color, int itemId, int qty)
 	{
@@ -81,8 +70,14 @@ class ItemLockerOverlay extends WidgetItemOverlay
 		if (image == null)
 		{
 			final Color fillColor = ColorUtil.colorWithAlpha(color, 64);
-			image = ImageUtil.fillImage(itemManager.getImage(itemId, qty, false), fillColor);
+			AsyncBufferedImage itemImage = itemManager.getImage(itemId, qty, false);
+			image = ImageUtil.fillImage(itemImage, fillColor);
 			fillCache.put(key, image);
+			itemImage.onLoaded(() -> {
+				Image loadedImage = ImageUtil.fillImage(itemImage, fillColor);
+				fillCache.put(key, loadedImage);
+			});
+			image = fillCache.getIfPresent(key);
 		}
 		return image;
 	}
@@ -90,6 +85,5 @@ class ItemLockerOverlay extends WidgetItemOverlay
 	void invalidateCache()
 	{
 		fillCache.invalidateAll();
-        unlockCache.invalidateAll();
 	}
 }
