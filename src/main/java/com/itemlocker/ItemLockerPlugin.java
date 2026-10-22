@@ -12,6 +12,9 @@ import javax.inject.Inject;
 
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
+import net.runelite.api.EnumComposition;
+import net.runelite.api.EnumID;
+import net.runelite.api.ItemContainer;
 import net.runelite.api.KeyCode;
 import net.runelite.api.Menu;
 import net.runelite.api.MenuAction;
@@ -19,6 +22,9 @@ import net.runelite.api.MenuEntry;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.PostMenuSort;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.ItemID;
+import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetUtil;
 import net.runelite.client.config.ConfigManager;
@@ -48,6 +54,9 @@ public class ItemLockerPlugin extends Plugin
 	private ItemLockerOverlay overlay;
 
 	@Inject
+	private SpellLockerOverlay spellOverlay;
+
+	@Inject
 	private OverlayManager overlayManager;
 
 	private Set<Integer> unlockedItems = new HashSet<>();
@@ -63,12 +72,14 @@ public class ItemLockerPlugin extends Plugin
 	{
 		this.unlockedItems = parseUnlockedItems(config.unlockedItems());
 		overlayManager.add(overlay);
+		overlayManager.add(spellOverlay);
 	}
 
 	@Override
 	protected void shutDown() throws Exception
 	{
 		overlayManager.remove(overlay);
+		overlayManager.remove(spellOverlay);
 		this.unlockedItems.clear();
 	}
 
@@ -172,6 +183,186 @@ public class ItemLockerPlugin extends Plugin
 		}
 	}
 
+	private static final int[] RUNE_POUCH_RUNE_VARBITS = {
+		VarbitID.RUNE_POUCH_TYPE_1,
+		VarbitID.RUNE_POUCH_TYPE_2,
+		VarbitID.RUNE_POUCH_TYPE_3,
+		VarbitID.RUNE_POUCH_TYPE_4,
+		VarbitID.RUNE_POUCH_TYPE_5,
+		VarbitID.RUNE_POUCH_TYPE_6
+	};
+
+	private static final int[] RUNE_POUCH_AMOUNT_VARBITS = {
+		VarbitID.RUNE_POUCH_QUANTITY_1,
+		VarbitID.RUNE_POUCH_QUANTITY_2,
+		VarbitID.RUNE_POUCH_QUANTITY_3,
+		VarbitID.RUNE_POUCH_QUANTITY_4,
+		VarbitID.RUNE_POUCH_QUANTITY_5,
+		VarbitID.RUNE_POUCH_QUANTITY_6
+	};
+
+	private boolean hasRunePouch(ItemContainer inventory)
+	{
+		return inventory.contains(ItemID.BH_RUNE_POUCH)
+			|| inventory.contains(ItemID.BH_RUNE_POUCH_TROUVER)
+			|| inventory.contains(ItemID.DIVINE_RUNE_POUCH)
+			|| inventory.contains(ItemID.DIVINE_RUNE_POUCH_TROUVER)
+			|| inventory.contains(ItemID.BR_RUNE_REPLACEMENT)
+			|| inventory.contains(ItemID.PVPA_RUNE_REPLACEMENT)
+			|| inventory.contains(ItemID.CASTLEWARS_RUNE_REPLACEMENT);
+	}
+
+	public boolean isSpellCastable(Spell spell)
+	{
+		ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
+		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
+		boolean hasRunePouch = inventory != null && hasRunePouch(inventory);
+
+		// 1. If casting this spell would consume any locked combination rune, block it
+		if (wouldConsumeLockedCombinationRune(spell, equipment, inventory, hasRunePouch))
+		{
+			return false;
+		}
+
+		// 2. Ensure every required rune has an active, unlocked source
+		for (RuneType rune : spell.getRequiredRunes())
+		{
+			if (!hasActiveUnlockedSource(rune, equipment, inventory, hasRunePouch))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private boolean wouldConsumeLockedCombinationRune(
+		Spell spell,
+		ItemContainer equipment,
+		ItemContainer inventory,
+		boolean hasRunePouch)
+	{
+		for (CombinationRune combo : CombinationRune.values())
+		{
+			int comboId = combo.getItemId();
+			if (getUnlocked(comboId))
+			{
+				continue;
+			}
+
+			boolean playerHasComboRune = (inventory != null && inventory.contains(comboId))
+				|| (hasRunePouch && isRuneInPouch(comboId));
+
+			if (!playerHasComboRune)
+			{
+				continue;
+			}
+
+			// If the spell requires any element this combo rune provides:
+			for (RuneType comboRuneType : combo.getRuneTypes())
+			{
+				if (spellRequiresRune(spell, comboRuneType))
+				{
+					// If this rune is consumed even with infinite sources (e.g. Sunfire runes),
+					// OR if we don't have an equipped infinite source to protect it:
+					if (combo.isConsumedEvenWithInfiniteSource() || !hasEquippedUnlockedSource(comboRuneType, equipment))
+					{
+						return true;
+					}
+				}
+			}
+		}
+
+		return false;
+	}
+
+	private boolean spellRequiresRune(Spell spell, RuneType runeType)
+	{
+		for (RuneType req : spell.getRequiredRunes())
+		{
+			if (req == runeType)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean hasEquippedUnlockedSource(RuneType rune, ItemContainer equipment)
+	{
+		if (equipment == null)
+		{
+			return false;
+		}
+		for (int sourceId : rune.getEquippedSources())
+		{
+			if (equipment.contains(sourceId) && getUnlocked(sourceId))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean isRuneInPouch(int targetItemId)
+	{
+		for (int i = 0; i < RUNE_POUCH_RUNE_VARBITS.length; i++)
+		{
+			int amount = client.getVarbitValue(RUNE_POUCH_AMOUNT_VARBITS[i]);
+			if (amount > 0)
+			{
+				int runeVal = client.getVarbitValue(RUNE_POUCH_RUNE_VARBITS[i]);
+				if (runeVal > 0)
+				{
+					EnumComposition runeEnum = client.getEnum(EnumID.RUNEPOUCH_RUNE);
+					if (runeEnum != null)
+					{
+						int itemId = runeEnum.getIntValue(runeVal);
+						if (itemId == targetItemId)
+						{
+							return true;
+						}
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	private boolean hasActiveUnlockedSource(RuneType rune, ItemContainer equipment, ItemContainer inventory, boolean hasRunePouch)
+	{
+		// 1. Check equipped infinite sources (e.g. staves, tomes)
+		if (hasEquippedUnlockedSource(rune, equipment))
+		{
+			return true;
+		}
+
+		// 2. Check inventory runes
+		if (inventory != null)
+		{
+			for (int runeId : rune.getValidRuneItemIds())
+			{
+				if (inventory.contains(runeId) && getUnlocked(runeId))
+				{
+					return true;
+				}
+			}
+		}
+
+		// 3. Check Rune Pouch runes
+		if (hasRunePouch)
+		{
+			for (int runeId : rune.getValidRuneItemIds())
+			{
+				if (getUnlocked(runeId) && isRuneInPouch(runeId))
+				{
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
 	@Subscribe
 	public void onPostMenuSort(PostMenuSort postMenuSort)
 	{
@@ -187,20 +378,37 @@ public class ItemLockerPlugin extends Plugin
 		}
 
 		MenuEntry leftClickEntry = menuEntries[menuEntries.length - 1];
-
-		if (getUnlocked(leftClickEntry.getItemId())) {
-			return;
-		}
-
 		Widget w = leftClickEntry.getWidget();
 
-		if (w == null || WidgetUtil.componentToInterface(w.getId()) != InterfaceID.INVENTORY) {
+		if (w == null)
+		{
 			return;
 		}
-		
-		MenuEntry newLeftClickEntry = root.createMenuEntry(-1);
 
-		newLeftClickEntry.setOption("Locked");
-		newLeftClickEntry.setType(MenuAction.CANCEL);
+		int interfaceId = WidgetUtil.componentToInterface(w.getId());
+
+		if (interfaceId == InterfaceID.INVENTORY)
+		{
+			if (getUnlocked(leftClickEntry.getItemId()))
+			{
+				return;
+			}
+
+			MenuEntry newLeftClickEntry = root.createMenuEntry(-1);
+			newLeftClickEntry.setOption("Locked");
+			newLeftClickEntry.setType(MenuAction.CANCEL);
+			return;
+		}
+
+		if (interfaceId == InterfaceID.MAGIC_SPELLBOOK)
+		{
+			Spell spell = Spell.forWidgetId(w.getId());
+			if (spell != null && !isSpellCastable(spell))
+			{
+				MenuEntry newLeftClickEntry = root.createMenuEntry(-1);
+				newLeftClickEntry.setOption("Locked");
+				newLeftClickEntry.setType(MenuAction.CANCEL);
+			}
+		}
 	}
 }
