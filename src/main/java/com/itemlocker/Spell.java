@@ -3,6 +3,7 @@ package com.itemlocker;
 import java.util.HashMap;
 import java.util.Map;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.client.util.Text;
 
 public enum Spell
 {
@@ -195,13 +196,30 @@ public enum Spell
 	private final RuneType[] requiredRunes;
 
 	private static final Map<Integer, Spell> BY_WIDGET_ID = new HashMap<>();
+	private static final Map<String, Spell> BY_CLEAN_NAME = new HashMap<>();
+
+	private static final String[] PREFIXES_TO_STRIP = {
+		"defensiveautocast",
+		"defensivecast",
+		"autocast",
+		"defensive",
+		"choose",
+		"select",
+		"cast"
+	};
 
 	static
 	{
 		for (Spell spell : values())
 		{
 			BY_WIDGET_ID.put(spell.widgetId, spell);
+			BY_CLEAN_NAME.put(cleanName(spell.name()), spell);
 		}
+		// Aliases
+		BY_CLEAN_NAME.put("slayersdart", MAGIC_DART);
+		BY_CLEAN_NAME.put("slayerdart", MAGIC_DART);
+		BY_CLEAN_NAME.put("ibansblast", IBAN_BLAST);
+		BY_CLEAN_NAME.put("crumbleundead", CRUMBLE_UNDEAD);
 	}
 
 	Spell(int widgetId, RuneType... requiredRunes)
@@ -223,6 +241,47 @@ public enum Spell
 	public static Spell forWidgetId(int widgetId)
 	{
 		return BY_WIDGET_ID.get(widgetId);
+	}
+
+	public static String cleanName(String name)
+	{
+		if (name == null)
+		{
+			return "";
+		}
+		return Text.removeTags(name)
+			.toLowerCase()
+			.replaceAll("[^a-z0-9]", "");
+	}
+
+	public static Spell forCleanName(String name)
+	{
+		if (name == null)
+		{
+			return null;
+		}
+		String clean = cleanName(name);
+		if (clean.isEmpty())
+		{
+			return null;
+		}
+		Spell spell = BY_CLEAN_NAME.get(clean);
+		if (spell != null)
+		{
+			return spell;
+		}
+		for (String prefix : PREFIXES_TO_STRIP)
+		{
+			if (clean.startsWith(prefix) && clean.length() > prefix.length())
+			{
+				Spell match = BY_CLEAN_NAME.get(clean.substring(prefix.length()));
+				if (match != null)
+				{
+					return match;
+				}
+			}
+		}
+		return null;
 	}
 }
 

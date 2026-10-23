@@ -57,6 +57,9 @@ public class ItemLockerPlugin extends Plugin
 	private SpellLockerOverlay spellOverlay;
 
 	@Inject
+	private AutocastLockerOverlay autocastOverlay;
+
+	@Inject
 	private OverlayManager overlayManager;
 
 	private Set<Integer> unlockedItems = new HashSet<>();
@@ -73,6 +76,7 @@ public class ItemLockerPlugin extends Plugin
 		this.unlockedItems = parseUnlockedItems(config.unlockedItems());
 		overlayManager.add(overlay);
 		overlayManager.add(spellOverlay);
+		overlayManager.add(autocastOverlay);
 	}
 
 	@Override
@@ -80,6 +84,7 @@ public class ItemLockerPlugin extends Plugin
 	{
 		overlayManager.remove(overlay);
 		overlayManager.remove(spellOverlay);
+		overlayManager.remove(autocastOverlay);
 		this.unlockedItems.clear();
 	}
 
@@ -363,6 +368,51 @@ public class ItemLockerPlugin extends Plugin
 		return false;
 	}
 
+	private Spell findSpellFromMenu(MenuEntry entry, Widget widget)
+	{
+		if (entry != null)
+		{
+			if (entry.getTarget() != null && !entry.getTarget().isEmpty())
+			{
+				Spell s = Spell.forCleanName(entry.getTarget());
+				if (s != null)
+				{
+					return s;
+				}
+			}
+
+			if (entry.getOption() != null && !entry.getOption().isEmpty())
+			{
+				Spell s = Spell.forCleanName(entry.getOption());
+				if (s != null)
+				{
+					return s;
+				}
+			}
+
+			if (entry.getOption() != null && entry.getTarget() != null)
+			{
+				Spell s = Spell.forCleanName(entry.getOption() + " " + entry.getTarget());
+				if (s != null)
+				{
+					return s;
+				}
+			}
+		}
+
+		if (widget != null)
+		{
+			Spell s = Spell.forWidgetId(widget.getId());
+			if (s != null)
+			{
+				return s;
+			}
+			return autocastOverlay.findSpellForWidget(widget);
+		}
+
+		return null;
+	}
+
 	@Subscribe
 	public void onPostMenuSort(PostMenuSort postMenuSort)
 	{
@@ -402,7 +452,19 @@ public class ItemLockerPlugin extends Plugin
 
 		if (interfaceId == InterfaceID.MAGIC_SPELLBOOK)
 		{
-			Spell spell = Spell.forWidgetId(w.getId());
+			Spell spell = findSpellFromMenu(leftClickEntry, w);
+			if (spell != null && !isSpellCastable(spell))
+			{
+				MenuEntry newLeftClickEntry = root.createMenuEntry(-1);
+				newLeftClickEntry.setOption("Locked");
+				newLeftClickEntry.setType(MenuAction.CANCEL);
+			}
+			return;
+		}
+
+		if (interfaceId == InterfaceID.AUTOCAST || interfaceId == InterfaceID.COMBAT_INTERFACE)
+		{
+			Spell spell = findSpellFromMenu(leftClickEntry, w);
 			if (spell != null && !isSpellCastable(spell))
 			{
 				MenuEntry newLeftClickEntry = root.createMenuEntry(-1);
